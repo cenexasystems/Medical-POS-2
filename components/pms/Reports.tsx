@@ -337,7 +337,7 @@ export const Reports = ({
           viewing && (
             <div className="flex items-center gap-2">
               <Button
-                variant="outline"
+                variant="ghost"
                 onClick={() => handleSendWhatsApp(viewing)}
                 aria-label="Send bill via WhatsApp"
                 title="Send bill via WhatsApp"
