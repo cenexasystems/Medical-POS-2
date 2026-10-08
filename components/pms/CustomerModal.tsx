@@ -21,12 +21,10 @@ export const CustomerModal = ({
   open,
   onClose,
   onConfirm,
-  defaultAction = "print",
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: (payload: CustomerPayload) => void;
-  defaultAction?: "print" | "whatsapp";
 }) => {
   // The dialog is keyed on `open` at the call site, so mounting gives a clean form.
   // Customers come from the Neon DB (via SWR); the parent already loaded this

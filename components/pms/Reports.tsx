@@ -5,7 +5,7 @@ import { Download, FileSpreadsheet, Search, Trash2, Eye, Printer } from "lucide-
 import type { Bill } from "@/lib/types";
 import { amount, dateSlash, formatWhatsAppPhone, money, monthShort, todayIso } from "@/lib/format";
 import { deleteBill } from "@/lib/actions";
-import { BILL_SUMMARY_SHEET, INVENTORY_SHEET, SALES_SHEET } from "./exports";
+import { BILL_SUMMARY_SHEET, INVENTORY_SHEET, SALES_SHEET, type BatchRow } from "./exports";
 import { downloadCsv, downloadExcel } from "@/lib/xlsx";
 import { Button, Card, Field, Modal, PageTitle, Select, StatTile, TextInput } from "./ui";
 import { round2 } from "@/lib/calc";
@@ -53,7 +53,7 @@ export const Reports = ({
   role = "admin",
 }: {
   bills: Bill[];
-  batchRows: any[];
+  batchRows: BatchRow[];
   onChanged: (message?: string) => void;
   role?: string;
 }) => {

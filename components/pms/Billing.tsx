@@ -10,7 +10,6 @@ import {
   Trash2,
   Pencil,
   Percent,
-  Printer,
   PauseCircle,
   MoreHorizontal,
   CreditCard,
@@ -330,7 +329,7 @@ export const Billing = ({
       } else {
         // Popup was blocked (or never opened) — fall back to the current tab so the
         // bill is never lost.
-        window.location.href = url;
+        window.location.assign(url);
       }
     } catch (err) {
       // Save failed — don't leave a stray blank tab behind.
@@ -964,7 +963,6 @@ export const Billing = ({
         open={customerOpen}
         onClose={() => setCustomerOpen(false)}
         onConfirm={finishBill}
-        defaultAction={checkoutIntent}
       />
 
       {notice && (
