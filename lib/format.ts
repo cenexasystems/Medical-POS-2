@@ -142,3 +142,23 @@ export const packNoun = (unitType: string): string => {
   if (unitType === "Bottle") return "Bottles";
   return "Pieces";
 };
+
+/**
+ * Normalizes phone numbers for WhatsApp.
+ * Strips +, spaces, dashes, brackets; removes a leading 0;
+ * 10 digits -> prepends 91; 12 digits starting with 91 -> keeps; otherwise returns null.
+ */
+export const formatWhatsAppPhone = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  let cleaned = raw.replace(/[+\s\-()]/g, "");
+  if (cleaned.startsWith("0")) {
+    cleaned = cleaned.slice(1);
+  }
+  if (/^\d{10}$/.test(cleaned)) {
+    return `91${cleaned}`;
+  }
+  if (/^91\d{10}$/.test(cleaned)) {
+    return cleaned;
+  }
+  return null;
+};
