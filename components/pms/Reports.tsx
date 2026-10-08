@@ -3,12 +3,19 @@
 import React, { useMemo, useState } from "react";
 import { Download, FileSpreadsheet, Search, Trash2, Eye, Printer } from "lucide-react";
 import type { Bill } from "@/lib/types";
-import { amount, dateSlash, money, monthShort, todayIso } from "@/lib/format";
+import { amount, dateSlash, formatWhatsAppPhone, money, monthShort, todayIso } from "@/lib/format";
 import { deleteBill } from "@/lib/actions";
 import { BILL_SUMMARY_SHEET, INVENTORY_SHEET, SALES_SHEET } from "./exports";
 import { downloadCsv, downloadExcel } from "@/lib/xlsx";
 import { Button, Card, Field, Modal, PageTitle, Select, StatTile, TextInput } from "./ui";
 import { round2 } from "@/lib/calc";
+import {
+  buildInvoiceMessage,
+  buildWhatsAppLink,
+  getInvoiceUrl,
+  openWhatsAppLink,
+  WhatsAppIcon,
+} from "@/lib/whatsapp";
 
 type Period = "TODAY" | "WEEK" | "MONTH" | "YEAR" | "ALL" | "CUSTOM";
 
@@ -91,6 +98,30 @@ export const Reports = ({
       bills: filtered.length,
     };
   }, [filtered]);
+
+  const handleSendWhatsApp = (b: Bill) => {
+    let phone = formatWhatsAppPhone(b.customer_phone);
+    if (!phone) {
+      const entered = typeof window !== "undefined"
+        ? window.prompt("Customer mobile number is missing or invalid. Enter mobile number to send via WhatsApp:", "")
+        : null;
+      if (!entered) return;
+      phone = formatWhatsAppPhone(entered);
+      if (!phone) {
+        onChanged("Customer mobile number missing/invalid");
+        return;
+      }
+    }
+
+    const { url, isLocal } = getInvoiceUrl(b.id);
+    if (isLocal) {
+      onChanged("Warning: Invoice URL is on localhost/private network and may not open on customer device.");
+    }
+
+    const msg = buildInvoiceMessage(b, url);
+    const link = buildWhatsAppLink(phone, msg);
+    openWhatsAppLink(link);
+  };
 
   const stamp = new Date().toISOString().slice(0, 10);
 
@@ -257,6 +288,14 @@ export const Reports = ({
                       >
                         <Printer className="h-4 w-4" />
                       </button>
+                      <button
+                        onClick={() => handleSendWhatsApp(bill)}
+                        aria-label="Send bill via WhatsApp"
+                        title="Send bill via WhatsApp"
+                        className="cursor-pointer rounded-md p-1.5 text-[#25D366] transition hover:bg-gray-100 hover:text-[#128C7E]"
+                      >
+                        <WhatsAppIcon className="h-4 w-4" />
+                      </button>
                       {role === "admin" && (
                         <button
                           onClick={async () => {
@@ -296,9 +335,20 @@ export const Reports = ({
         width="max-w-4xl"
         footer={
           viewing && (
-            <Button onClick={() => window.open(`/invoice/${viewing.id}`, "_blank")}>
-              <Printer className="h-4 w-4" /> Open invoice
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => handleSendWhatsApp(viewing)}
+                aria-label="Send bill via WhatsApp"
+                title="Send bill via WhatsApp"
+                className="text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/10"
+              >
+                <WhatsAppIcon className="h-4 w-4" /> Send via WhatsApp
+              </Button>
+              <Button onClick={() => window.open(`/invoice/${viewing.id}`, "_blank")}>
+                <Printer className="h-4 w-4" /> Open invoice
+              </Button>
+            </div>
           )
         }
       >
