@@ -18,9 +18,10 @@ import {
 } from "lucide-react";
 import type { Batch, CartLine, HeldBill, MedicineWithBatches, PaymentMethod } from "@/lib/types";
 import { calcBillTotals, calcDiscountPercent, round2 } from "@/lib/calc";
-import { amount, formatWhatsAppPhone, money, monthShort, unitNoun, todayIso } from "@/lib/format";
+import { amount, expiryState, formatWhatsAppPhone, money, monthShort, unitNoun, todayIso } from "@/lib/format";
 import { listHeldBills, saveHeldBills } from "@/lib/store";
 import { submitBill } from "@/lib/actions";
+import { searchMedicines } from "@/lib/search";
 import { Button, Card, Pill, ScheduleBadge, ScreenHeading, Select } from "./ui";
 import { CustomerModal } from "./CustomerModal";
 import {
@@ -97,31 +98,52 @@ export const Billing = ({
 
   /* ------------------------------- results ------------------------------- */
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return medicines
-      .filter(
-        (m) =>
-          m.generic_name.toLowerCase().includes(q) ||
-          m.salt.toLowerCase().includes(q) ||
-          m.hsn_code.includes(q) ||
-          // Search through all batches for brand/manufacturer match
-          m.batches.some(
-            (b) =>
-              b.brand_name.toLowerCase().includes(q) ||
-              b.manufacturer.toLowerCase().includes(q) ||
-              b.batch_no.toLowerCase().includes(q),
-          ),
-      )
-      .slice(0, 8);
+    return searchMedicines(medicines, query, 25);
   }, [query, medicines]);
+
+  const fallbackBatch: Batch | null = useMemo(() => {
+    if (!selected) return null;
+    if (selected.batches.length > 0) return null;
+    return {
+      id: "no-batch",
+      medicine_id: selected.id,
+      supplier_id: null,
+      invoice_no: "—",
+      purchase_date: "",
+      batch_no: "—",
+      mfg_date: "",
+      exp_date: "",
+      box: "—",
+      purchase_unit_type: selected.purchase_unit_type || "Strip",
+      pack_size: 1,
+      qty_packs: 0,
+      stock_added: 0,
+      stock_qty: 0,
+      purchase_rate: 0,
+      mrp: 0,
+      selling_price: 0,
+      gst_percent: Number(selected.gst_percent) || 0,
+      brand_name: selected.brand_name || "",
+      manufacturer: selected.manufacturer || "",
+      created_at: "",
+    };
+  }, [selected]);
 
   const batch: Batch | null = useMemo(() => {
     if (!selected) return null;
-    return selected.batches.find((b) => b.id === batchId) || selected.active_batch;
-  }, [selected, batchId]);
+    return (
+      selected.batches.find((b) => b.id === batchId) ||
+      selected.active_batch ||
+      selected.batches[0] ||
+      fallbackBatch
+    );
+  }, [selected, batchId, fallbackBatch]);
 
   /* ------------------------- derived pricing values ---------------------- */
+  const isExpired = batch?.exp_date ? expiryState(batch.exp_date) === "EXPIRED" : false;
+  const isOutOfStock = !batch || batch.stock_qty <= 0;
+  const isSellable = Boolean(batch && batch.id !== "no-batch" && batch.stock_qty > 0 && !isExpired);
+
   const perUnitBase = batch ? round2(batch.selling_price / (batch.pack_size || 1)) : 0;
   const perUnit = priceOverride !== null ? priceOverride : perUnitBase;
   const mrpPerUnit = batch ? round2(batch.mrp / (batch.pack_size || 1)) : 0;
@@ -134,7 +156,7 @@ export const Billing = ({
 
   const chooseMedicine = (medicine: MedicineWithBatches) => {
     setSelected(medicine);
-    setBatchId(medicine.active_batch?.id || "");
+    setBatchId(medicine.active_batch?.id || medicine.batches[0]?.id || "");
     setQty(1);
     setPriceOverride(null);
     setEditingPrice(false);
@@ -154,6 +176,15 @@ export const Billing = ({
   /* ------------------------------- cart ops ------------------------------ */
   const addToBill = () => {
     if (!selected || !batch) return;
+    if (batch.id === "no-batch" || selected.batches.length === 0) {
+      return setNotice("This medicine has no stock or batch entered.");
+    }
+    if (batch.stock_qty <= 0) {
+      return setNotice("This item is out of stock.");
+    }
+    if (isExpired) {
+      return setNotice("Cannot sell an expired batch.");
+    }
     if (qty <= 0) return setNotice("Enter a quantity greater than zero.");
     if (qty > batch.stock_qty) return setNotice(`Only ${batch.stock_qty} ${unitWord} left in this batch.`);
 
@@ -408,7 +439,9 @@ export const Billing = ({
           {showResults && query.trim() && results.length > 0 && (
             <div className="absolute left-0 right-0 top-[52px] z-30 max-h-[340px] overflow-y-auto rounded-xl border border-[#e5e7eb] bg-white py-1.5 shadow-xl">
               {results.map((m, i) => {
-                const b = m.active_batch;
+                const b = m.active_batch || m.batches[0];
+                const hasStock = m.total_stock > 0;
+                const hasBatches = m.batches.length > 0;
                 return (
                   <button
                     key={m.id}
@@ -433,9 +466,15 @@ export const Billing = ({
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block text-[13px] font-bold text-[#0a6127]">
-                        {m.total_stock} {b ? unitNoun(b.purchase_unit_type, b.pack_size) : ""}
-                      </span>
+                      {hasStock ? (
+                        <span className="block text-[13px] font-bold text-[#0a6127]">
+                          {m.total_stock} {b ? unitNoun(b.purchase_unit_type, b.pack_size) : "Units"}
+                        </span>
+                      ) : !hasBatches ? (
+                        <span className="block text-[12px] font-bold text-[#b91c1c]">No batch</span>
+                      ) : (
+                        <span className="block text-[12px] font-bold text-[#b91c1c]">Out of stock</span>
+                      )}
                       <ScheduleBadge schedule={m.schedule} />
                     </span>
                   </button>
@@ -483,30 +522,39 @@ export const Billing = ({
                   </span>
                   <Pill tone="blue">Box {batch.box || "—"}</Pill>
                   <Pill tone="gray">GST {batch.gst_percent}%</Pill>
+                  {isOutOfStock && (
+                    <Pill tone="red">{batch.id === "no-batch" ? "No Batch" : "Out of Stock"}</Pill>
+                  )}
+                  {isExpired && <Pill tone="red">Expired Batch</Pill>}
                 </div>
               </div>
 
               <div className="shrink-0 text-center">
                 <p className="text-[11.5px] text-gray-500">Available Stock</p>
-                <p className="text-[30px] font-extrabold leading-tight text-[#0a6127]">
+                <p
+                  className={`text-[30px] font-extrabold leading-tight ${
+                    isOutOfStock ? "text-[#b91c1c]" : "text-[#0a6127]"
+                  }`}
+                >
                   {batch.stock_qty}
                 </p>
-                <p className="text-[13px] font-semibold text-gray-700">{unitWord}</p>
+                <p className="text-[13px] font-semibold text-gray-700">
+                  {isOutOfStock ? (batch.id === "no-batch" ? "No Batch" : "Out of stock") : unitWord}
+                </p>
               </div>
             </div>
 
-            {/* Batch picker when the medicine has more than one live batch */}
-            {selected.batches.filter((b) => b.stock_qty > 0).length > 1 && (
+            {/* Batch picker when the medicine has more than one batch */}
+            {selected.batches.length > 1 && (
               <div className="mt-3">
                 <label className="field-label">Batch</label>
                 <Select value={batch.id} onChange={(e) => setBatchId(e.target.value)}>
-                  {selected.batches
-                    .filter((b) => b.stock_qty > 0)
-                    .map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.batch_no} · EXP {monthShort(b.exp_date)} · Box {b.box} · {b.stock_qty} left
-                      </option>
-                    ))}
+                  {selected.batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.batch_no} · EXP {monthShort(b.exp_date)} · Box {b.box} · {b.stock_qty} left
+                      {expiryState(b.exp_date) === "EXPIRED" ? " (EXPIRED)" : ""}
+                    </option>
+                  ))}
                 </Select>
               </div>
             )}
@@ -645,9 +693,21 @@ export const Billing = ({
               </div>
               <button
                 onClick={addToBill}
-                className="ml-auto flex cursor-pointer items-center gap-2 rounded-lg bg-[#0a6127] px-5 py-3 text-[13.5px] font-bold text-white transition hover:bg-[#0d7530]"
+                disabled={!isSellable}
+                className={`ml-auto flex items-center gap-2 rounded-lg px-5 py-3 text-[13.5px] font-bold text-white transition ${
+                  isSellable
+                    ? "cursor-pointer bg-[#0a6127] hover:bg-[#0d7530]"
+                    : "cursor-not-allowed bg-gray-400 hover:bg-gray-400"
+                }`}
               >
-                <Plus className="h-4 w-4" /> ADD TO BILL (F5)
+                <Plus className="h-4 w-4" />
+                {isExpired
+                  ? "EXPIRED BATCH"
+                  : isOutOfStock
+                  ? batch.id === "no-batch"
+                    ? "NO BATCH"
+                    : "OUT OF STOCK"
+                  : "ADD TO BILL (F5)"}
               </button>
             </div>
           </Card>
