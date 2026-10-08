@@ -5,6 +5,7 @@ import { Zap, Info, User, Phone, MapPin, Stethoscope, Printer, X, Search } from 
 import type { Customer } from "@/lib/types";
 import { useCustomers } from "./data";
 import { Button } from "./ui";
+import { WhatsAppIcon } from "@/lib/whatsapp";
 
 export type CustomerPayload = {
   id: string | null;
@@ -13,16 +14,19 @@ export type CustomerPayload = {
   address: string;
   doctor: string;
   quickBill: boolean;
+  action?: "print" | "whatsapp";
 };
 
 export const CustomerModal = ({
   open,
   onClose,
   onConfirm,
+  defaultAction = "print",
 }: {
   open: boolean;
   onClose: () => void;
   onConfirm: (payload: CustomerPayload) => void;
+  defaultAction?: "print" | "whatsapp";
 }) => {
   // The dialog is keyed on `open` at the call site, so mounting gives a clean form.
   // Customers come from the Neon DB (via SWR); the parent already loaded this
@@ -249,10 +253,29 @@ export const CustomerModal = ({
                 address: addressValue,
                 doctor: doctorValue,
                 quickBill,
+                action: "print",
               })
             }
           >
             <Printer className="h-4 w-4" /> Print Bill
+          </Button>
+          <Button
+            onClick={() =>
+              onConfirm({
+                id: matched?.id || null,
+                name: nameValue,
+                phone,
+                address: addressValue,
+                doctor: doctorValue,
+                quickBill,
+                action: "whatsapp",
+              })
+            }
+            aria-label="Send bill via WhatsApp"
+            title="Send bill via WhatsApp"
+            className="bg-[#25D366] hover:bg-[#128C7E] text-white border-transparent"
+          >
+            <WhatsAppIcon className="h-4 w-4" /> WhatsApp Bill
           </Button>
         </div>
       </div>

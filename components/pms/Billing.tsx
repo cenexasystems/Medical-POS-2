@@ -19,11 +19,18 @@ import {
 } from "lucide-react";
 import type { Batch, CartLine, HeldBill, MedicineWithBatches, PaymentMethod } from "@/lib/types";
 import { calcBillTotals, calcDiscountPercent, round2 } from "@/lib/calc";
-import { amount, money, monthShort, unitNoun, todayIso } from "@/lib/format";
+import { amount, formatWhatsAppPhone, money, monthShort, unitNoun, todayIso } from "@/lib/format";
 import { listHeldBills, saveHeldBills } from "@/lib/store";
 import { submitBill } from "@/lib/actions";
 import { Button, Card, Pill, ScheduleBadge, ScreenHeading, Select } from "./ui";
 import { CustomerModal } from "./CustomerModal";
+import {
+  buildInvoiceMessage,
+  buildWhatsAppLink,
+  getInvoiceUrl,
+  openWhatsAppLink,
+  WhatsAppIcon,
+} from "@/lib/whatsapp";
 
 /** Quick-add quantities requested by the client (slide 3) */
 const QUICK_ADD = [1, 10, 15, 20, 30, 45];
@@ -76,6 +83,7 @@ export const Billing = ({
   const [billDate, setBillDate] = useState(todayIso());
   const [showMore, setShowMore] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
+  const [checkoutIntent, setCheckoutIntent] = useState<"print" | "whatsapp">("print");
   const [notice, setNotice] = useState("");
 
   /* Both come from the store, which re-renders this screen on every write. */
@@ -230,8 +238,9 @@ export const Billing = ({
   };
 
   /* ------------------------------- checkout ------------------------------ */
-  const startCheckout = () => {
+  const startCheckout = (intent: "print" | "whatsapp" = "print") => {
     if (!lines.length) return setNotice("Add at least one medicine to the bill.");
+    setCheckoutIntent(intent);
     setCustomerOpen(true);
   };
 
@@ -242,11 +251,63 @@ export const Billing = ({
     address: string;
     doctor: string;
     quickBill: boolean;
+    action?: "print" | "whatsapp";
   }) => {
-    // iOS Safari blocks window.open() once it happens after an `await`, because it
-    // no longer counts as being inside the tap gesture — that's why the bill saved
-    // but no invoice opened on iPhone. Open the tab synchronously here (still inside
-    // the tap), then redirect it to the invoice once the bill id comes back.
+    const isWhatsApp = customer.action === "whatsapp" || (!customer.action && checkoutIntent === "whatsapp");
+
+    if (isWhatsApp) {
+      const normalizedPhone = formatWhatsAppPhone(customer.phone);
+      if (!normalizedPhone) {
+        setNotice("Customer mobile number missing/invalid");
+        return;
+      }
+
+      // iOS Safari / Android Chrome: open window synchronously before any await
+      const waWindow = typeof window !== "undefined" ? window.open("", "_blank") : null;
+      try {
+        const billId = await submitBill({
+          lines,
+          customer_id: customer.id,
+          customer_name: customer.name,
+          customer_phone: customer.phone,
+          customer_address: customer.address,
+          doctor_name: customer.doctor,
+          received_amount: receivedNum,
+          payment_method: payment,
+        });
+        setCustomerOpen(false);
+        clearBill();
+        onDone();
+
+        const { url, isLocal } = getInvoiceUrl(billId);
+        const msg = buildInvoiceMessage(
+          {
+            id: billId,
+            bill_date: todayIso(),
+            grand_total: payable,
+          },
+          url
+        );
+        const waLink = buildWhatsAppLink(normalizedPhone, msg);
+
+        if (waWindow && !waWindow.closed) {
+          waWindow.location.href = waLink;
+        } else {
+          openWhatsAppLink(waLink);
+        }
+
+        if (isLocal) {
+          setNotice("Bill saved! Warning: Localhost invoice URL may not open on customer device.");
+        }
+      } catch (err) {
+        if (waWindow && !waWindow.closed) waWindow.close();
+        setNotice("Could not save the bill. Please try again.");
+        throw err;
+      }
+      return;
+    }
+
+    // Existing print flow remains completely untouched
     const printWindow = typeof window !== "undefined" ? window.open("", "_blank") : null;
     try {
       const billId = await submitBill({
@@ -801,12 +862,22 @@ export const Billing = ({
             </div>
           </div>
 
-          <button
-            onClick={startCheckout}
-            className="mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#0a6127] py-3.5 text-[13.5px] font-bold uppercase tracking-wide text-white transition hover:bg-[#0d7530]"
-          >
-            <CreditCard className="h-[18px] w-[18px]" /> Pay &amp; Print (F12)
-          </button>
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={() => startCheckout("print")}
+              className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#0a6127] py-3.5 text-[13.5px] font-bold uppercase tracking-wide text-white transition hover:bg-[#0d7530]"
+            >
+              <CreditCard className="h-[18px] w-[18px]" /> Pay &amp; Print (F12)
+            </button>
+            <button
+              onClick={() => startCheckout("whatsapp")}
+              aria-label="Send bill via WhatsApp"
+              title="Send bill via WhatsApp"
+              className="flex h-[49px] w-[49px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#25D366] text-white transition hover:bg-[#128C7E]"
+            >
+              <WhatsAppIcon className="h-5 w-5" />
+            </button>
+          </div>
 
           <div className="relative mt-3 grid grid-cols-2 gap-2">
             <button
@@ -893,6 +964,7 @@ export const Billing = ({
         open={customerOpen}
         onClose={() => setCustomerOpen(false)}
         onConfirm={finishBill}
+        defaultAction={checkoutIntent}
       />
 
       {notice && (
