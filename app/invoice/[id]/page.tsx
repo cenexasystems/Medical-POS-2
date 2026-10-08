@@ -43,7 +43,16 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
       `}</style>
 
       <div className="mb-5 flex w-full max-w-sm justify-end no-print">
-        <InvoiceActions />
+        <InvoiceActions
+          bill={{
+            id: bill.id,
+            customer_name: bill.customer_name,
+            customer_phone: bill.customer_phone,
+            bill_date: bill.bill_date,
+            created_at: bill.created_at,
+            grand_total: bill.grand_total,
+          }}
+        />
       </div>
 
       <div className="w-[72mm] overflow-hidden bg-white px-3 py-4 print:w-[72mm] print:px-1.5 print:py-2 text-black font-mono mx-auto text-xs">
